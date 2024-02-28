@@ -1,0 +1,94 @@
+name: Create Release Notes Pr
+
+on: 
+    workflow_dispatch:
+        inputs:
+            elicplusplus_tag_name:
+                description: 'Target ELICPLUSPLUS Tag'
+                required: true
+
+jobs:
+  Release-Notes-Pr:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+          fetch-depth: 0
+          token: ${{ secrets.GIT_TOKEN }}
+
+      - name: Install Dependencies
+        run: |
+            pip install ruamel.yaml
+
+      - name: Create Release Notes Pr
+        run: | 
+            BASE_BRANCH=${{ github.ref_name }}
+            GIT_REPO=${{ github.repository }}
+            TARGET_ELICPLUSPLUS_TAG=${{ github.event.inputs.elicplusplus_tag_name }}
+            RELEASE_NOTES_PR="build-release_notes_$TARGET_ELICPLUSPLUS_TAG"
+            DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+            pwd
+            if [[ $BASE_BRANCH == *.x  || $BASE_BRANCH == "develop" || $BASE_BRANCH == rc* ]]
+            then
+                git config --local user.email "actions@github.com"
+                git config --local user.name "GitHub Actions"
+                if git rev-parse "$TARGET_ELICPLUSPLUS_TAG" >/dev/null 2>&1;
+                then
+                    echo "Target ELICPLUSPLUS Tag Already exist"
+                    git commit --allow-empty -m "ci(AutoReleaseNotes): Target ELICPLUSPLUS Already exist"
+                    git push origin $RELEASE_NOTES_PR
+                    msg="TARGET_ELICPLUSPLUS_TAG: $TARGET_ELICPLUSPLUS_TAG 
+                    Already exist please give correct tag 
+                    Closing Pull Request....."
+                    echo -e "$msg" > msg
+                    echo $msg
+                    gh pr create -B $BASE_BRANCH -H $RELEASE_NOTES_PR --title "Pr for Release Notes of $TARGET_ELICPLUSPLUS_TAG" \
+                      --body "$msg"
+                    curl -X DELETE -H "Authorization: Bearer $GITHUB_TOKEN" "https://api.github.com/repos/${{ github.repository }}/git/refs/heads/${RELEASE_NOTES_PR}"
+                    exit 1
+                fi
+                exist_branch=$(curl -sH "Authorization: Bearer $GITHUB_TOKEN" "https://api.github.com/repos/${{ github.repository }}/branches/${RELEASE_NOTES_PR}")
+                echo "Check for branch: $exist_branch"
+                if [[ $(echo "$exist_branch" | jq -r '.message') != "Branch not found" ]]
+                then
+                    # Delete the branch
+                    echo "Branch exist deleting it first"
+                    curl -X DELETE -H "Authorization: Bearer $GITHUB_TOKEN" "https://api.github.com/repos/${{ github.repository }}/git/refs/heads/${RELEASE_NOTES_PR}"
+                fi
+                git checkout $BASE_BRANCH
+                git checkout -b $RELEASE_NOTES_PR
+                pip install fuzzywuzzy
+                echo "Starting Creation Script"
+                python ./.github/scripts/create_release_notes.py "$BASE_BRANCH" "$GIT_REPO" "$GITHUB_TOKEN" "$TARGET_ELICPLUSPLUS_TAG"
+                echo "Starting Merger Script"
+                python ./.github/scripts/merge_build_notes_yaml.py "$GIT_REPO" "$GITHUB_TOKEN"
+                git_status=$(git status --porcelain)
+                if [ -n "$git_status" ]
+                then
+                    git add build_notes.yaml
+                    git add taglist.yaml
+                    git commit -m "ci(AutoReleaseNotes): Update Release Notes for tag $TARGET_ELICPLUSPLUS_TAG"
+                    git push origin $RELEASE_NOTES_PR
+                    gh pr create -B $BASE_BRANCH -H $RELEASE_NOTES_PR --title "(Build) Pr for Release Notes of $TARGET_ELICPLUSPLUS_TAG" --body "$TARGET_ELICPLUSPLUS_TAG"
+                else
+                    echo "There are no changes in the release notes"
+                    git commit --allow-empty -m "ci(AutoReleaseNotes): No changes in relase notes for tag $TARGET_ELICPLUSPLUS_TAG"
+                    git push origin $RELEASE_NOTES_PR
+                    msg="$TARGET_ELICPLUSPLUS_TAG
+                    No changes in release notes
+                    Closing Pull Request....."
+                    echo -e "$msg" > msg
+                    gh pr create -B $BASE_BRANCH -H $RELEASE_NOTES_PR --title "(Build) Pr for Release Notes of $TARGET_ELICPLUSPLUS_TAG" \
+                      --body "$msg"
+                    curl -X DELETE -H "Authorization: Bearer $GITHUB_TOKEN" "https://api.github.com/repos/${{ github.repository }}/git/refs/heads/${RELEASE_NOTES_PR}"
+                fi
+            else
+                echo "Please give valid base branch"
+                echo "Accepted branches are *.x, develop, rc*"
+                exit 1
+            fi
+        env:
+          GITHUB_TOKEN: ${{ secrets.GIT_TOKEN }}
+      

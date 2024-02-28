@@ -1,0 +1,34 @@
+name: Revert Build Notes and Tag List Before Merge
+
+on:
+    pull_request:
+      types: [opened, edited, synchronize]
+
+jobs:
+  Release-Notes-Pr:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
+          token: ${{ secrets.GIT_TOKEN }}
+
+      - name: Revert Build Notes and Tag List Before Merge to as same as Base Branch
+        run: | 
+            BASE_BRANCH=${{ github.base_ref }}
+            HEAD_BRANCH=${{ github.head_ref }}
+            GIT_REPO=${{ github.repository }}
+            if [[ $BASE_BRANCH == *.x  || $BASE_BRANCH == "develop" || $BASE_BRANCH == rc* ]]
+            then
+                if [[ "${{ github.event.pull_request.title }}" != *"(Build)"* ]]; then
+                bash .github/scripts/revert_build_notes_before_merge.sh $BASE_BRANCH $HEAD_BRANCH || true
+              fi
+            else
+                echo "Accepted branches are *.x, develop, rc*"
+                exit 0
+            fi
+        env:
+          GITHUB_TOKEN: ${{ secrets.GIT_TOKEN }}
+      
