@@ -62,8 +62,6 @@ jobs:
                 pip install fuzzywuzzy
                 echo "Starting Creation Script"
                 python ./.github/scripts/create_release_notes.py "$BASE_BRANCH" "$GIT_REPO" "$GITHUB_TOKEN" "$TARGET_ELICPLUSPLUS_TAG"
-                echo "Starting Merger Script"
-                python ./.github/scripts/merge_build_notes_yaml.py "$GIT_REPO" "$GITHUB_TOKEN"
                 git_status=$(git status --porcelain)
                 if [ -n "$git_status" ]
                 then
